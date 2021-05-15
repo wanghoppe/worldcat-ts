@@ -1,0 +1,17 @@
+{
+  "scripts": {
+    "start": "node dist/index.js"
+  },
+  "name": "worldcat-ts",
+  "version": "1.0.0",
+  "main": "index.js",
+  "author": "hoppe",
+  "license": "MIT",
+  "dependencies": {
+    "axios": "^0.21.1",
+    "node-html-parser": "^3.3.0"
+  },
+  "devDependencies": {
+    "@types/node": "^15.3.0"
+  }
+}
