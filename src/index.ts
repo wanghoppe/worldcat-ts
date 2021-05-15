@@ -1,35 +1,58 @@
 import axios from 'axios'
 import * as fs from 'fs';
-import * as parser from 'node-html-parser';
-import {parseTotalNum} from './parser';
+import {parse} from 'node-html-parser';
+import {parseTotalNum, parseLinkItemList, parseResponsibility, LinkItem} from './parser';
+import {fetchCitation, fetchSearchPage, fetchDetailPage} from './request';
 
-const BASE_URL = 'https://www.worldcat.org/';
-const SEARCH_URL = BASE_URL + 'search?q=ti%3Anagananda%7Cnaganandam&fq=x0%3Abook&dblist=638&qt=page_number_link';
-
-async function saveHtml() {
-  const writer = fs.createWriteStream('./test_data/v1.html');
-  const response = await axios({
-    method: 'get',
-    url: 'https://www.worldcat.org/search?q=ti%3Anagananda%7Cnaganandam&fq=x0%3Abook&dblist=638&start=211&qt=page_number_link',
-    responseType: 'stream',
-  });
-  response.data.pipe(writer);
+interface BookItem {
+  oclcnum?: string,
+  citation?: string,
+  language?: string,
+  responsibility?: string,
 }
 
-async function parseContent() {
-  const html = fs.readFileSync('./test_data/v1.html', 'utf-8');
-  const dom = parser.parse(html);
+interface BookMap {
+  [Key: string]: BookItem,
+}
+
+async function getPageNumList(): Promise<number[]> {
+  const data = await fetchSearchPage();
+  const dom = parse(data.data);
   const num = parseTotalNum(dom);
-  // console.log(
-    dom.querySelectorAll('tr.menuElem').forEach((item) => {
-      console.log(item.innerHTML);
-  });
-  // );
+  return new Array(Math.ceil(num/10)).fill(0).map((_, i) => (i * 10 +1));
 }
 
-function main() {
-
+async function processPage(pageNum: number, bookMap: BookMap): Promise<any> {
+  console.log(`[INFO] processPage: ${pageNum}`);
+  const data = await fetchSearchPage(pageNum);
+  const dom = parse(data.data);
+  const linkItemList = parseLinkItemList(dom);
+  return Promise.all(linkItemList.map((item) => insertRecord(item, bookMap)));
 }
 
+async function insertRecord(linkItem: LinkItem, bookMap: BookMap): Promise<any> {
+  bookMap[linkItem.oclcnum] = {
+    language: linkItem.language,
+    oclcnum: linkItem.oclcnum,
+  }
+  const citationPromise = fetchCitation(linkItem.oclcnum);
+  const detailPromise = fetchDetailPage(linkItem.oclcnum);
+  return Promise.all([citationPromise, detailPromise]).then(([resCite, resDetail]) => {
+    const citation = resCite.data?.cite;
+    const responsibility = parseResponsibility(parse(resDetail.data));
+    bookMap[linkItem.oclcnum] = {
+      ...bookMap[linkItem.oclcnum],
+      citation,
+      responsibility,
+    }
+  })
+}
 
-parseContent();
+async function main() {
+  const pageList = await getPageNumList();
+  const bookMap: BookMap = {}
+  await Promise.all(pageList.map((page) => processPage(page, bookMap)));
+  fs.writeFileSync('test_data/result.json', JSON.stringify(bookMap));
+}
+
+main().then(()=>console.log("exit"));

@@ -1,11 +1,6 @@
-import axios, {AxiosRequestConfig, AxiosPromise} from 'axios';
+import axios, {AxiosRequestConfig, AxiosResponse} from 'axios';
 
-interface queueItem {
-  config: AxiosRequestConfig,
-  cb: Function,
-}
-
-export class RequsetQueue {
+export default class RequsetQueue {
 
   constructor(maxLen: number) {
     this.maxLen = maxLen
@@ -13,34 +8,11 @@ export class RequsetQueue {
 
   private maxLen: number;
 
-  private queue: queueItem[] = [];
+  private _fetchingNum = 0;
 
-  private _start() {
-    if (this.queue.length < this.maxLen) {
-      const {config, cb} = this.queue.shift();
-      this._request(config, cb);
-    }
-  }
+  private queue: Function[] = [];
 
-  private _request(config: AxiosRequestConfig, cb: Function): any {
-    const res = axios(config).then((data) => cb(data));
-    if (this.queue.length) {
-      const {config, cb} = this.queue.shift();
-      this._request(config, cb);
-    }
-  }
-
-  public queueRequest(config: AxiosRequestConfig): AxiosPromise {
-    return new Promise((res, rej) => {
-      this.queue.push({
-        config,
-        cb: res
-      });
-      this._start();
-    });
-  }
-
-  private _await() {
+  private _wait() {
     return new Promise((release) => {
       this.queue.push(release);
       this._start();
@@ -48,21 +20,30 @@ export class RequsetQueue {
   }
 
   private _start() {
-    if (this.queue.length < this.maxLen) {
-      this.queue.shift()();
+    if (this._fetchingNum < this.maxLen) {
+      console.log(`[INFO] numer of queue left: ${this.queue.length}`)
+      if (this.queue.length) {
+        this.queue.shift()();
+      }
     }
   }
 
   private _shiftQueue() {
-    if (this.queue.length) {
-      this.queue.shift()();
-    }
+    this._fetchingNum -= 1
+    this._start();
   }
 
-  public async queueRequest1(config: AxiosRequestConfig): AxiosPromise {
-    await this._wait();
-    const res = await axios(config);
-    this._shiftQueue();
+  public async request(config: AxiosRequestConfig): Promise<AxiosResponse> {
+    const _ = await this._wait();
+    let res = null;
+    try {
+      this._fetchingNum += 1;
+      res = await axios(config);
+    } catch(error) {
+      console.log('[ERROR]', JSON.stringify({config, error}))
+    } finally {
+      this._shiftQueue();
+    }
     return res;
   }
 }
